@@ -3,7 +3,7 @@ import type { ContentSource, NewsArticle } from '../types';
 import { CONTENT_SOURCE_LABELS } from '../types';
 import { ContentSelector } from '../components/ContentSelector';
 import { useSettingsStore } from '../stores/settingsStore';
-import { fetchArticles, getAvailableSources } from '../services/newsFetcher';
+import { fetchArticles, getAvailableSources, SOURCE_GRADES } from '../services/newsFetcher';
 import type { FetchResult } from '../services/newsFetcher';
 
 // ============================================================
@@ -260,16 +260,20 @@ export function NewsList() {
   const [fromCache, setFromCache] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [selectedGrade, setSelectedGrade] = useState<string | undefined>(undefined);
 
   // Track touch start for pull-to-refresh
   const touchStartY = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // Available grades for current source
+  const availableGrades = SOURCE_GRADES[currentSource] || [];
+
   // Load articles for the current source and page
   const loadArticles = useCallback(
-    async (source: ContentSource, pageNum: number, append = false) => {
+    async (source: ContentSource, pageNum: number, append = false, grade?: string) => {
       const count = pageNum * PAGE_SIZE;
-      const result: FetchResult = await fetchArticles(source, count);
+      const result: FetchResult = await fetchArticles(source, count, grade);
 
       if (append) {
         // For pagination, append only new articles
@@ -305,7 +309,7 @@ export function NewsList() {
       setHasMore(true);
 
       try {
-        await loadArticles(currentSource, 1);
+        await loadArticles(currentSource, 1, false, selectedGrade);
       } catch {
         if (!cancelled) {
           setError('加载失败，请稍后重试');
@@ -322,7 +326,7 @@ export function NewsList() {
     return () => {
       cancelled = true;
     };
-  }, [currentSource, loadArticles]);
+  }, [currentSource, selectedGrade, loadArticles]);
 
   // Handle source change from ContentSelector
   const handleSourceChange = useCallback(
@@ -331,10 +335,16 @@ export function NewsList() {
       // Clear current articles and load new source
       setArticles([]);
       setError(undefined);
+      setSelectedGrade(undefined); // Reset grade filter on source change
       setSelectedSource(source);
     },
     [currentSource, setSelectedSource]
   );
+
+  // Handle grade change
+  const handleGradeChange = useCallback((grade: string | undefined) => {
+    setSelectedGrade(grade);
+  }, []);
 
   // Pull-to-refresh handler
   const handleRefresh = useCallback(async () => {
@@ -343,7 +353,7 @@ export function NewsList() {
     setError(undefined);
 
     try {
-      await loadArticles(currentSource, 1);
+      await loadArticles(currentSource, 1, false, selectedGrade);
       setPage(1);
       setHasMore(true);
     } catch {
@@ -351,7 +361,7 @@ export function NewsList() {
     } finally {
       setIsRefreshing(false);
     }
-  }, [currentSource, isRefreshing, loadArticles]);
+  }, [currentSource, selectedGrade, isRefreshing, loadArticles]);
 
   // Load more (pagination)
   const handleLoadMore = useCallback(async () => {
@@ -360,14 +370,14 @@ export function NewsList() {
 
     const nextPage = page + 1;
     try {
-      await loadArticles(currentSource, nextPage, true);
+      await loadArticles(currentSource, nextPage, true, selectedGrade);
       setPage(nextPage);
     } catch {
       // Silently fail on load-more
     } finally {
       setIsLoadingMore(false);
     }
-  }, [currentSource, hasMore, isLoadingMore, loadArticles, page]);
+  }, [currentSource, selectedGrade, hasMore, isLoadingMore, loadArticles, page]);
 
   // Touch handlers for pull-to-refresh
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
@@ -440,6 +450,34 @@ export function NewsList() {
           onSourceChange={handleSourceChange}
           availableSources={availableSources}
         />
+        {/* Grade Filter */}
+        {availableGrades.length > 0 && (
+          <div className="flex items-center gap-2 mt-2 overflow-x-auto pb-1">
+            <button
+              onClick={() => handleGradeChange(undefined)}
+              className={`px-3 py-1 text-xs font-medium rounded-full whitespace-nowrap transition-colors ${
+                !selectedGrade
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+            >
+              全部
+            </button>
+            {availableGrades.map((grade) => (
+              <button
+                key={grade}
+                onClick={() => handleGradeChange(grade)}
+                className={`px-3 py-1 text-xs font-medium rounded-full whitespace-nowrap transition-colors ${
+                  selectedGrade === grade
+                    ? 'bg-primary-600 text-white'
+                    : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                }`}
+              >
+                {grade}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
       {/* Main Content Area */}

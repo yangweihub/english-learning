@@ -92,6 +92,7 @@ export interface NewsArticle {
   contentSource: ContentSource;
   difficulty: DifficultyLevel;
   imageUrl?: string;
+  grade?: string;
 }
 
 // ============================================================

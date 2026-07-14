@@ -78,6 +78,17 @@ const ALL_SOURCES: ContentSource[] = [
   'elementary',
 ];
 
+/**
+ * Available grade filters for each content source.
+ */
+export const SOURCE_GRADES: Record<ContentSource, string[]> = {
+  'current-affairs': [],
+  'senior-high': ['高一', '高二', '高三'],
+  'junior-high': ['初一', '初二', '初三'],
+  'junior-senior-mixed': [],
+  'elementary': ['三年级', '四年级', '五年级', '六年级'],
+};
+
 // ============================================================
 // Supabase Article Fetching (real data)
 // ============================================================
@@ -88,23 +99,36 @@ const ALL_SOURCES: ContentSource[] = [
  */
 async function fetchFromSupabase(
   source: ContentSource,
-  count: number
+  count: number,
+  grade?: string
 ): Promise<NewsArticle[] | null> {
   try {
     // Fetch public articles
-    const { data: publicData, error: publicError } = await supabase
+    let publicQuery = supabase
       .from('articles')
       .select('*')
       .eq('content_source', source)
       .order('published_at', { ascending: false })
       .limit(count);
 
+    if (grade) {
+      publicQuery = publicQuery.eq('grade', grade);
+    }
+
+    const { data: publicData, error: publicError } = await publicQuery;
+
     // Also fetch user's private articles for this source
-    const { data: userData } = await supabase
+    let userQuery = supabase
       .from('user_articles')
       .select('*')
       .eq('content_source', source)
       .order('created_at', { ascending: false });
+
+    if (grade) {
+      userQuery = userQuery.eq('grade', grade);
+    }
+
+    const { data: userData } = await userQuery;
 
     const allData = [...(userData || []), ...(publicData || [])];
 
@@ -129,6 +153,7 @@ async function fetchFromSupabase(
         contentSource: row.content_source as ContentSource,
         difficulty: (row.difficulty || 'intermediate') as DifficultyLevel,
         imageUrl: row.image_url || undefined,
+        grade: row.grade || undefined,
       };
     });
   } catch {
@@ -444,11 +469,12 @@ const MOCK_ARTICLE_TEMPLATES: Record<
  */
 export async function fetchArticles(
   source: ContentSource,
-  count: number
+  count: number,
+  grade?: string
 ): Promise<FetchResult> {
   try {
     // Try Supabase first (real crawled content)
-    const supabaseArticles = await fetchFromSupabase(source, count);
+    const supabaseArticles = await fetchFromSupabase(source, count, grade);
     
     if (supabaseArticles && supabaseArticles.length > 0) {
       // Cache to IndexedDB for offline access
