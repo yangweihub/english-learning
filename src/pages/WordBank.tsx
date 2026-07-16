@@ -176,8 +176,11 @@ function FlashcardTrainer({ words }: { words: WordBankEntry[] }) {
           const isActive = idx === currentIdx;
           const isRevealed = revealedSet.has(idx);
           const isPast = idx < currentIdx;
-          const translation = entry.word.definitions.map(d => d.chinese).filter(Boolean).join('；')
-            || entry.word.definitions.map(d => d.english).join('; ');
+          const translation = (() => {
+            const chinese = entry.word.definitions.map(d => d.chinese).filter(Boolean).join('；');
+            if (chinese && chinese.length > 20) return chinese.split(/[；;，,。]/)[0] || chinese.substring(0, 15);
+            return chinese || entry.word.definitions.map(d => d.english.split('.')[0]).slice(0, 2).join('; ');
+          })();
 
           return (
             <div
@@ -269,7 +272,15 @@ function WordList({ words, extendedWords }: { words: WordBankEntry[]; extendedWo
             </div>
           </div>
           <p className="text-sm text-blue-700 dark:text-blue-300">
-            {entry.word.definitions.map(d => d.chinese).filter(Boolean).join('；') || entry.word.definitions.map(d => d.english).join('; ')}
+            {(() => {
+              const chinese = entry.word.definitions.map(d => d.chinese).filter(Boolean).join('；');
+              // If Chinese translation is too long, show only first short segment
+              if (chinese && chinese.length > 20) {
+                const short = chinese.split(/[；;，,。]/)[0] || chinese.substring(0, 15);
+                return short;
+              }
+              return chinese || entry.word.definitions.map(d => d.english.split('.')[0]).slice(0, 2).join('; ');
+            })()}
           </p>
           {entry.word.sourceSentence && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 italic">
