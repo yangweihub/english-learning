@@ -274,26 +274,35 @@ async function mockDictionaryLookup(word: string): Promise<DictionaryEntry> {
           }
         }
 
-        // Try to get Chinese translation for definitions
+        // Try to get Chinese translation for the word itself (simple, concise)
         if (definitions.length > 0) {
           try {
-            // Translate all definitions (batch the first 2)
-            const textsToTranslate = definitions.slice(0, 2).map(d => d.english.substring(0, 100));
-            const translationPromises = textsToTranslate.map(async (text) => {
-              const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|zh-CN`;
-              const resp = await fetch(url);
-              if (resp.ok) {
-                const data = await resp.json();
-                if (data?.responseData?.translatedText && data.responseData.translatedText !== text) {
-                  return data.responseData.translatedText as string;
+            // Translate the word directly to get a concise Chinese meaning
+            const wordUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(word.toLowerCase())}&langpair=en|zh-CN`;
+            const wordResp = await fetch(wordUrl);
+            if (wordResp.ok) {
+              const wordData = await wordResp.json();
+              const directTranslation = wordData?.responseData?.translatedText;
+              if (directTranslation && directTranslation.toLowerCase() !== word.toLowerCase()) {
+                // Use direct word translation for all definitions
+                for (const def of definitions) {
+                  def.chinese = directTranslation;
                 }
               }
-              return '';
-            });
-            const translations = await Promise.all(translationPromises);
-            for (let i = 0; i < translations.length && i < definitions.length; i++) {
-              if (translations[i] && definitions[i]) {
-                definitions[i]!.chinese = translations[i]!;
+            }
+
+            // If direct translation failed or same as word, try translating short definition
+            if (!definitions[0]?.chinese || definitions[0].chinese === definitions[0].english) {
+              const shortDef = definitions[0]?.english.split('.')[0]?.substring(0, 60) || word;
+              const defUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(shortDef)}&langpair=en|zh-CN`;
+              const defResp = await fetch(defUrl);
+              if (defResp.ok) {
+                const defData = await defResp.json();
+                if (defData?.responseData?.translatedText) {
+                  for (const def of definitions) {
+                    def.chinese = defData.responseData.translatedText;
+                  }
+                }
               }
             }
           } catch {
