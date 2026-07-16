@@ -587,9 +587,7 @@ export const ArticleReader: React.FC<ArticleReaderProps> = ({ articleId }) => {
                 <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
                   {def.chinese && def.chinese !== def.english ? def.chinese : ''}
                 </p>
-                <p className="text-xs text-gray-600 dark:text-gray-400">
-                  {def.english}
-                </p>
+                <ClickToTranslate text={def.english} />
               </div>
             ))}
           </div>
@@ -702,6 +700,48 @@ function TranslatableText({ text }: { text: string }) {
       </p>
       {translation && (
         <p className="text-xs text-blue-600 dark:text-blue-400 pl-2 mt-0.5">
+          → {translation}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// ClickToTranslate - English definition that can be clicked to translate
+// ============================================================
+
+function ClickToTranslate({ text }: { text: string }) {
+  const [translation, setTranslation] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleClick = async () => {
+    if (translation !== null) { setTranslation(null); return; }
+    setLoading(true);
+    try {
+      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text.substring(0, 100))}&langpair=en|zh-CN`;
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data?.responseData?.translatedText) {
+          setTranslation(data.responseData.translatedText);
+        } else { setTranslation('(翻译失败)'); }
+      } else { setTranslation('(翻译失败)'); }
+    } catch { setTranslation('(翻译失败)'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div>
+      <p
+        className="text-xs text-gray-600 dark:text-gray-400 cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+        onClick={handleClick}
+        title="点击翻译"
+      >
+        {text} {loading && <span className="text-gray-400">⏳</span>}
+      </p>
+      {translation && (
+        <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
           → {translation}
         </p>
       )}
