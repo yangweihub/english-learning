@@ -374,8 +374,10 @@ function WordImporter({ onImported }: { onImported: () => void }) {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('language', 'eng');
-      formData.append('isOverlayRequired', 'false');
-      formData.append('OCREngine', '2');
+      formData.append('isOverlayRequired', 'true');
+      formData.append('OCREngine', '1');
+      formData.append('scale', 'true');
+      formData.append('isTable', 'true');
 
       const resp = await fetch('https://api.ocr.space/parse/image', {
         method: 'POST',
@@ -386,8 +388,37 @@ function WordImporter({ onImported }: { onImported: () => void }) {
       if (resp.ok) {
         const data = await resp.json();
         if (data?.ParsedResults?.[0]?.ParsedText) {
-          const text = data.ParsedResults[0].ParsedText;
-          setTextInput(text);
+          const rawText = data.ParsedResults[0].ParsedText;
+          // Extract English words from vocabulary list format
+          // Match words at start of lines or after common patterns
+          const words: string[] = [];
+          const lines = rawText.split(/[\r\n]+/);
+          for (const line of lines) {
+            // Match pattern: word /phonetic/ or *word or just word at line start
+            const match = line.match(/^\*?([a-zA-Z][a-zA-Z '-]{1,25})\b/);
+            if (match) {
+              const word = match[1].trim().toLowerCase();
+              if (word.length >= 2 && !words.includes(word)) {
+                words.push(word);
+              }
+            }
+            // Also try to find standalone English words in the line
+            const allWords = line.match(/\b[a-zA-Z][a-zA-Z'-]{2,20}\b/g);
+            if (allWords) {
+              for (const w of allWords) {
+                const lower = w.toLowerCase();
+                // Skip phonetic symbols and common non-words
+                if (lower.length >= 3 && !words.includes(lower) && 
+                    !['adj','adv','prep','conj','pron','the','and','for','but','not','you','all','can','had','her','was','one','our'].includes(lower) &&
+                    !/^[aeiou]{3,}/.test(lower)) {
+                  words.push(lower);
+                }
+              }
+            }
+          }
+          // Deduplicate and set as text input (one per line for review)
+          const uniqueWords = [...new Set(words)];
+          setTextInput(uniqueWords.join('\n'));
         }
       }
     } catch { /* silent */ }
