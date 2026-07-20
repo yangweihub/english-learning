@@ -3,8 +3,8 @@
  * Shows saved words + flashcard training mode.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { getWordBank } from '../services/vocabularyModule';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { getWordBank, addToWordBank, getWordDetails } from '../services/vocabularyModule';
 import type { WordBankEntry } from '../types';
 
 type ViewMode = 'list' | 'train';
@@ -61,6 +61,12 @@ export function WordBank() {
             </button>
           )}
         </div>
+
+        {/* Import Section */}
+        <WordImporter onImported={async () => {
+          const bank = await getWordBank();
+          setWords(bank);
+        }} />
 
         {isEmpty ? (
           <div className="text-center py-12">
@@ -303,6 +309,150 @@ function WordList({ words, extendedWords }: { words: WordBankEntry[]; extendedWo
             ))}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Word Importer - 一键导入生词（OCR图片/文本粘贴）
+// ============================================================
+
+function WordImporter({ onImported }: { onImported: () => void }) {
+  const [showImport, setShowImport] = useState(false);
+  const [textInput, setTextInput] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [result, setResult] = useState<{ success: number; failed: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const importWords = useCallback(async (text: string) => {
+    // Extract words: split by comma, space, newline, semicolon
+    const rawWords = text
+      .split(/[,;，；\n\r\s]+/)
+      .map(w => w.trim().toLowerCase().replace(/[^a-z'-]/g, ''))
+      .filter(w => w.length >= 2 && w.length <= 30);
+
+    // Deduplicate
+    const uniqueWords = [...new Set(rawWords)];
+    if (uniqueWords.length === 0) {
+      setResult({ success: 0, failed: 0 });
+      return;
+    }
+
+    setImporting(true);
+    let success = 0;
+    let failed = 0;
+
+    for (const word of uniqueWords) {
+      try {
+        const details = await getWordDetails(word);
+        await addToWordBank(details);
+        success++;
+      } catch {
+        failed++;
+      }
+      // Brief delay to avoid API rate limits
+      if (success + failed < uniqueWords.length) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
+
+    setResult({ success, failed });
+    setImporting(false);
+    setTextInput('');
+    if (success > 0) onImported();
+  }, [onImported]);
+
+  const handleOCR = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOcrLoading(true);
+    setResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('language', 'eng');
+      formData.append('isOverlayRequired', 'false');
+      formData.append('OCREngine', '2');
+
+      const resp = await fetch('https://api.ocr.space/parse/image', {
+        method: 'POST',
+        headers: { 'apikey': 'helloworld' },
+        body: formData,
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data?.ParsedResults?.[0]?.ParsedText) {
+          const text = data.ParsedResults[0].ParsedText;
+          setTextInput(text);
+        }
+      }
+    } catch { /* silent */ }
+    finally {
+      setOcrLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, []);
+
+  if (!showImport) {
+    return (
+      <div className="mb-4">
+        <button
+          onClick={() => setShowImport(true)}
+          className="text-sm text-primary-600 dark:text-primary-400 hover:underline"
+        >
+          📥 批量导入生词
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300">📥 批量导入生词</h3>
+        <button onClick={() => { setShowImport(false); setResult(null); }} className="text-xs text-gray-400 hover:text-gray-600">关闭</button>
+      </div>
+
+      {/* OCR Button */}
+      <div className="flex items-center gap-3 mb-3">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={ocrLoading || importing}
+          className="px-3 py-1.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+        >
+          {ocrLoading ? '识别中...' : '📷 从图片识别'}
+        </button>
+        <span className="text-xs text-gray-400">或在下方粘贴单词列表</span>
+      </div>
+      <input ref={fileInputRef} type="file" accept="image/*" onChange={handleOCR} className="hidden" />
+
+      {/* Text Input */}
+      <textarea
+        value={textInput}
+        onChange={(e) => setTextInput(e.target.value)}
+        placeholder="每行一个单词，或用逗号/空格分隔，如：apple, banana, orange"
+        rows={4}
+        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 resize-y mb-3"
+      />
+
+      {/* Import Button */}
+      <button
+        onClick={() => importWords(textInput)}
+        disabled={importing || !textInput.trim()}
+        className="w-full py-2 text-sm font-medium bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+      >
+        {importing ? '导入中...' : '开始导入'}
+      </button>
+
+      {/* Result */}
+      {result && (
+        <p className="mt-2 text-xs text-center text-gray-500 dark:text-gray-400">
+          ✅ 成功导入 {result.success} 个单词{result.failed > 0 ? `，${result.failed} 个失败` : ''}
+        </p>
       )}
     </div>
   );
