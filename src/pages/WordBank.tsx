@@ -76,7 +76,24 @@ export function WordBank() {
         ) : mode === 'train' ? (
           <FlashcardTrainer words={allWords} />
         ) : (
-          <WordList words={allWords} extendedWords={extendedWords} />
+          <WordList words={allWords} extendedWords={extendedWords} onDelete={async (wordId) => {
+            // Delete from IndexedDB
+            const { deleteByKey, STORE_NAMES } = await import('../utils/db');
+            await deleteByKey(STORE_NAMES.wordBank, wordId);
+            // Delete from Supabase
+            try {
+              const { supabase } = await import('../utils/supabase');
+              const { data: { user } } = await supabase.auth.getUser();
+              if (user) {
+                const entry = words.find(w => w.word.id === wordId);
+                if (entry) {
+                  await supabase.from('word_bank').delete().eq('user_id', user.id).eq('word', entry.word.word);
+                }
+              }
+            } catch { /* silent */ }
+            // Update local state
+            setWords(prev => prev.filter(w => w.word.id !== wordId));
+          }} />
         )}
       </div>
     </div>
@@ -247,7 +264,7 @@ function FlashcardTrainer({ words }: { words: WordBankEntry[] }) {
 // Word List View
 // ============================================================
 
-function WordList({ words, extendedWords }: { words: WordBankEntry[]; extendedWords: string[] }) {
+function WordList({ words, extendedWords, onDelete }: { words: WordBankEntry[]; extendedWords: string[]; onDelete: (wordId: string) => void }) {
   return (
     <div className="space-y-3">
       {words.map((entry) => (
@@ -275,6 +292,13 @@ function WordList({ words, extendedWords }: { words: WordBankEntry[]; extendedWo
               <div className="w-16 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full">
                 <div className="h-full bg-green-500 rounded-full" style={{ width: `${entry.masteryLevel}%` }} />
               </div>
+              <button
+                onClick={() => onDelete(entry.word.id)}
+                className="text-xs px-1.5 py-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                title="删除"
+              >
+                ✕
+              </button>
             </div>
           </div>
           <p className="text-sm text-blue-700 dark:text-blue-300">
